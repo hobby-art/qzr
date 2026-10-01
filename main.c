@@ -1,0 +1,59 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <sqlite3.h>
+#include <string.h>
+
+#include "helpers.h"
+
+
+// gcc -Wall -Wextra main.c helpers.c -lsqlite3 -o qzr
+
+
+int main(void) {
+
+    sqlite3 *db;
+    if (init_db(&db) != 0) {
+        return 1;
+    }
+
+    char input[1024]; // input size for quiz answers and menu options
+
+    puts(GREEN "Hello! Choose a command or type 'q' to exit." RESET);
+
+    while (1) {
+
+        show_main_menu();
+
+        int status = read_input(input, sizeof(input));
+        if (status == -1) {
+            puts("No input. Try again.");
+            continue;
+        } else if (status == 1) {
+            puts("Reply is too long. Try again.");
+            continue;
+        }
+
+        if (input[0] == 'q') {
+            return 0;
+        }
+
+        int menu_choice = atoi(input);
+
+        switch (menu_choice) {
+           case 1:
+               puts("Option 1. Work in progress.");
+               continue;
+           case 2:
+               puts("Option 2. Work in progress.");
+               continue;
+           case 3:
+               puts("Option 3. Work in progress.");
+               continue;
+           default:
+               puts("Invalid option. Try again.");
+               continue;
+        }
+
+    }
+
+}
