@@ -11,14 +11,18 @@
 
 int main(void) {
 
+    Config cfg;
+    config_defaults(&cfg);
+    config_load(&cfg, "settings.conf");
+
     sqlite3 *db;
     if (init_db(&db) != 0) {
         return 1;
     }
 
-    char input[1024]; // input size for quiz answers and menu options
+    char input[2048]; // input size for quiz answers and menu options
 
-    puts(GREEN "Hello! Choose a command or type 'q' to exit." RESET);
+    puts(GREEN "=== Hello! Choose a command or type 'q' to exit. ===" RESET);
 
     while (1) {
 
@@ -43,9 +47,13 @@ int main(void) {
            case 1:
                puts("Option 1. Work in progress.");
                continue;
-           case 2:
-               puts("Option 2. Work in progress.");
+           case 2: {
+               Question q = add_new_question();
+               if (add_question_to_db(db, &q) == 0) {
+                   show_added_question_info(&q);
+               }
                continue;
+           }
            case 3:
                puts("Option 3. Work in progress.");
                continue;
@@ -55,5 +63,7 @@ int main(void) {
         }
 
     }
+
+   sqlite3_close(db);
 
 }

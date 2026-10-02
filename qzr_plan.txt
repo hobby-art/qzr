@@ -1,6 +1,6 @@
 - SQLite for db;
 - add colors;
-- after receiving an answer don't check if it's the same as in the db. just print the correct answer and update the stat for the question; check if it's the same but only for the stats;
+- after receiving an answer don't check if it's the same as in the db. just print the correct answer and update the stat for the question; check if it's the same but only for the stats; let choose the strict option to compare input with the correct answer;
 
 DB columns:
 - prompt;
@@ -25,3 +25,14 @@ Main menu items:
 2. Add new question and answer to the db -> struct: prompt, answer, category
 3. Remove a question and answer from the db
 4. Show available prompts with answers and stats -> all OR a specific category
+
+TODO:
+
+FIRST UNDERSTAND SQLITE
+
+- show items
+- remove items
+- quiz
+- show stats
+- reset stats
+- add colors
