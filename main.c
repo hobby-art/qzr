@@ -55,7 +55,10 @@ int main(void) {
                continue;
            }
            case 3:
-               puts("Option 3. Work in progress.");
+               remove_questions_menu(db);
+               continue;
+           case 4:
+               show_questions_menu(db);
                continue;
            default:
                puts("Invalid option. Try again.");

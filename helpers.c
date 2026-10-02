@@ -78,7 +78,8 @@ int init_db(sqlite3 **db) {
 void show_main_menu(void) {
     puts("\n1. Quick start\n"
          "2. Add new question\n"
-         "3. Remove question");
+         "3. Remove question\n"
+         "4. Show available questions");
     printf("> ");
 }
 
@@ -191,4 +192,265 @@ int add_question_to_db(sqlite3 *db, const Question *q) {
     }
 
     return 0;
+}
+
+
+static int print_categories(sqlite3 *db) {
+
+    sqlite3_stmt *stmt = NULL;
+    int result_code = sqlite3_prepare_v2(db,
+                "SELECT c.id, c.category, COUNT(q.id) "
+                "FROM categories c "
+                "LEFT JOIN questions q ON q.category_id = c.id "
+                "GROUP BY c.id "
+                "ORDER BY c.category COLLATE NOCASE, c.id;",
+                -1, &stmt, NULL);
+    if (result_code != SQLITE_OK) {
+        fprintf(stderr, "Prepare failed: %s\n", sqlite3_errmsg(db));
+        return -1;
+    }
+
+    while ((result_code = sqlite3_step(stmt)) == SQLITE_ROW) {
+        printf("  %lld) %s (%d)\n",
+            (long long)sqlite3_column_int64(stmt, 0),
+            (const char *)sqlite3_column_text(stmt, 1),
+            sqlite3_column_int(stmt, 2));
+    }
+
+    if (result_code != SQLITE_DONE) {
+        fprintf(stderr, "Reading categories failed: %s\n", sqlite3_errmsg(db));
+    }
+
+    sqlite3_finalize(stmt);
+    return (result_code == SQLITE_DONE) ? 0 : -1;
+
+}
+
+
+static int show_questions(sqlite3 *db, sqlite3_int64 category_id) {
+
+    const char *sql =
+            "SELECT q.id, c.category, q.question, q.answer "
+            "FROM questions q "
+            "JOIN categories c ON c.id = q.category_id "
+            "WHERE ?1 = 0 OR c.id = ?1 "
+            "ORDER BY c.category COLLATE NOCASE, q.id;";
+
+    sqlite3_stmt *stmt = NULL;
+    int result_code = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    if (result_code != SQLITE_OK) {
+        fprintf(stderr, "Prepare failed: %s\n", sqlite3_errmsg(db));
+        return -1;
+    }
+    sqlite3_bind_int(stmt, 1, category_id);
+
+    int count = 0;
+    while ((result_code = sqlite3_step(stmt)) == SQLITE_ROW) {
+        printf("[%lld] (%s) %s -> %s\n",
+            (long long)sqlite3_column_int64(stmt,0),
+            (const char *)sqlite3_column_text(stmt, 1),
+            (const char *)sqlite3_column_text(stmt, 2),
+            (const char *)sqlite3_column_text(stmt, 3));
+        count++;
+    }
+
+    if (result_code != SQLITE_DONE) {
+        fprintf(stderr, "Reading questions failed: %s\n", sqlite3_errmsg(db));
+    }
+
+    sqlite3_finalize(stmt);
+    if (result_code != SQLITE_DONE) {
+        return -1;
+    }
+
+    if (count == 0) {
+        printf("No questions found.\n");
+    }
+
+    return 0;
+
+}
+
+
+void show_questions_menu(sqlite3 *db) {
+
+    char input[64];
+
+    printf("\nShow questions from:\n");
+    printf("  0) ALL categories\n");
+    if (print_categories(db) != 0) {
+        return;
+    }
+
+    printf("\nYour choice: ");
+    read_input(input, sizeof input);
+
+    char *end;
+    long choice = strtol(input, &end, 10);
+    if (end == input || *end != '\0') {
+        printf("Please enter a number.\n");
+        return;
+    }
+
+    show_questions(db, choice);
+
+}
+
+
+static int ask_number(const char *prompt, long *out) {
+
+    char input[2048];
+
+    printf("%s", prompt);
+    read_input(input, sizeof input);
+
+    char *end;
+    long value = strtol(input, &end, 10);
+    if (end == input || *end != '\0') {
+        return -1;
+    }
+
+    *out = value;
+    return 0;
+}
+
+
+static int run_delete(sqlite3 *db, const char *sql, sqlite3_int64 p1, sqlite3_int64 p2) {
+
+    sqlite3_stmt *stmt = NULL;
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        fprintf(stderr, "Prepare failed: %s\n", sqlite3_errmsg(db));
+        return -1;
+    }
+
+    sqlite3_bind_int64(stmt, 1, p1);
+    if (sqlite3_bind_parameter_count(stmt) >= 2) {
+        sqlite3_bind_int64(stmt, 2, p2);
+    }
+
+    int result_code = sqlite3_step(stmt);
+    int changes = sqlite3_changes(db);
+    if (result_code != SQLITE_DONE) {
+        fprintf(stderr, "Delete failed: %s\n", sqlite3_errmsg(db));
+    }
+    sqlite3_finalize(stmt);
+
+    return (result_code == SQLITE_DONE) ? changes : -1;
+
+}
+
+
+static int remove_question(sqlite3 *db, sqlite3_int64 question_id, sqlite3_int64 category_id) {
+
+    int changed = -1;
+
+    sqlite3_exec(db, "BEGIN;", NULL, NULL, NULL);
+
+    if (run_delete(db,
+        "DELETE FROM stats WHERE question_id IN "
+        "(SELECT id FROM questions WHERE id = ?1 AND category_id = ?2);",
+        question_id, category_id) >= 0) {
+            changed = run_delete(db,
+                "DELETE FROM questions WHERE id = ?1 AND category_id = ?2;",
+                question_id, category_id);
+        }
+
+    if (changed >= 0) {
+        if (run_delete(db,
+            "DELETE FROM categories WHERE id = ?1 AND NOT EXISTS "
+            "(SELECT 1 FROM questions WHERE category_id = ?1);",
+            category_id, 0) < 0) {
+                changed = -1;
+            }
+    }
+
+    if (changed >= 0) {
+        sqlite3_exec(db, "COMMIT;", NULL, NULL, NULL);
+    } else {
+        sqlite3_exec(db, "ROLLBACK;", NULL, NULL, NULL);
+    }
+
+    return changed;
+
+}
+
+
+static int remove_category(sqlite3 *db, sqlite3_int64 category_id) {
+
+    int changed = -1;
+
+    sqlite3_exec(db, "BEGIN;", NULL, NULL, NULL);
+
+    if (run_delete(db,
+            "DELETE FROM stats WHERE question_id IN "
+            "(SELECT id FROM questions WHERE category_id = ?1);",
+            category_id, 0) >= 0
+        && run_delete(db,
+            "DELETE FROM questions WHERE category_id = ?1;",
+            category_id, 0) >= 0) {
+
+                changed = run_delete(db,
+                    "DELETE FROM categories WHERE id = ?1;",
+                    category_id, 0);
+
+            }
+
+    if (changed >= 0) {
+        sqlite3_exec(db, "COMMIT;", NULL, NULL, NULL);
+    } else {
+        sqlite3_exec(db, "ROLLBACK;", NULL, NULL, NULL);
+    }
+
+    return changed;
+
+}
+
+
+void remove_questions_menu(sqlite3 *db) {
+
+    long category_id;
+    long choice;
+
+    printf("\nRemove from category:\n");
+    if (print_categories(db) != 0) {
+        return;
+    }
+
+    if (ask_number("Category: ", &category_id) != 0 || category_id <= 0) {
+        printf("Cancelled.\n");
+        return;
+    }
+
+    printf("\n");
+    show_questions(db, category_id);
+
+    if (ask_number("Question number to remove (0 = remove the WHOLE category): ",
+        &choice) != 0 || choice < 0) {
+            printf("Cancelled.\n");
+            return;
+    }
+
+    if (choice == 0) {
+        char answer[16];
+        printf("This deletes the category, ALL its questions and their stats.\n");
+        printf("Type 'yes' to confirm: ");
+        read_input(answer, sizeof answer);
+
+        if (strcmp(answer, "yes") != 0) {
+            printf("Cancelled.\n");
+            return;
+        }
+
+        int changed = remove_category(db, category_id);
+        if (changed < 0)        printf("Removing failed.\n");
+        else if (changed == 0)  printf("No such category.\n");
+        else                    printf("Category removed.\n");
+    } else {
+        int changed = remove_question(db, choice, category_id);
+        if (changed < 0)        printf("Removing failed.\n");
+        else if (changed == 0)  printf("No questions with that number in this category.\n");
+        else                    printf("Question removed.\n");
+    }
+
 }

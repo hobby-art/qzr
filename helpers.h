@@ -39,6 +39,8 @@ void show_main_menu(void);
 Question add_new_question(void);
 void show_added_question_info(Question *q);
 int add_question_to_db(sqlite3 *db, const Question *q);
+void show_questions_menu(sqlite3 *db);
+void remove_questions_menu(sqlite3 *db);
 // misc
 int read_input(char *buf, size_t size);
 
