@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "helpers.h"
+#include "ui.h"
 
 
 void config_defaults(Config *cfg) {
@@ -14,6 +15,7 @@ void config_defaults(Config *cfg) {
 
 
 void config_load(Config *cfg, const char *path) {
+
     FILE *file = fopen(path, "r");
     if (!file) return;
 
@@ -84,11 +86,12 @@ int init_db(sqlite3 **db) {
 
 
 void show_main_menu(void) {
-    puts("\n1. Quick start\n"
-         "2. Add new question\n"
-         "3. Remove question\n"
-         "4. Show available questions\n"
-         "5. Reset stats");
+
+    puts("\n1) Quick start\n"
+         "2) Add new question\n"
+         "3) Remove question\n"
+         "4) Show available questions\n"
+         "5) Reset stats\n");
     printf("> ");
 }
 
@@ -119,7 +122,7 @@ int read_input(char *buf, size_t size) {
 
 static int ask_non_empty_text(const char *prompt, char *buf, size_t size) {
 
-    puts(prompt);
+    printf("%s", prompt);
     if (read_input(buf, size) != 0 || buf[0] == '\0') {
         return -1;
     }
@@ -132,19 +135,24 @@ int add_new_question(Question *q) {
 
     memset(q, 0, sizeof *q);
 
-    if(ask_non_empty_text("\nCategory: ", q->category, sizeof q->category) != 0) return -1;
-    if(ask_non_empty_text("\nQuestion: ", q->question, sizeof q->question) != 0) return -1;
-    if(ask_non_empty_text("\nAnswer: ", q->answer, sizeof q->answer) != 0) return -1;
+    printf(ERASE_AND_HOME);
+
+    if(ask_non_empty_text(BOLD "\nCategory" RESET ": ", q->category, sizeof q->category) != 0) return -1;
+    if(ask_non_empty_text(BOLD "\nQuestion" RESET ": ", q->question, sizeof q->question) != 0) return -1;
+    if(ask_non_empty_text(BOLD "\nAnswer" RESET ": ", q->answer, sizeof q->answer) != 0) return -1;
 
     return 0;
 }
 
 
 void show_added_question_info(Question *q) {
-    puts("\nDone. You added:");
-    printf("Category: %s\n", q->category);
-    printf("Question: %s\n", q->question);
-    printf("Answer: %s\n", q->answer);
+
+    printf(ERASE_AND_HOME);
+
+    puts(GREEN "\nDone." RESET " You added:");
+    printf(BOLD "Category" RESET ": %s\n", q->category);
+    printf(BOLD "Question" RESET ": %s\n", q->question);
+    printf(BOLD "Answer" RESET ": %s\n", q->answer);
 }
 
 
@@ -157,26 +165,26 @@ static int add_question_steps(sqlite3 *db, const Question *q) {
 
     result_code = sqlite3_prepare_v2(db, "INSERT OR IGNORE INTO categories (category) VALUES (?);", -1, &stmt, NULL);
     if (result_code != SQLITE_OK) {
-        fprintf(stderr, "Prepare failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Prepare failed: %s\n" RESET, sqlite3_errmsg(db));
         return -1;
     }
     sqlite3_bind_text(stmt, 1, q->category, -1, SQLITE_TRANSIENT);
     result_code = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     if (result_code != SQLITE_DONE) {
-        fprintf(stderr, "Insert category failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Insert category failed: %s\n" RESET, sqlite3_errmsg(db));
         return -1;
     }
 
     result_code = sqlite3_prepare_v2(db, "SELECT id FROM categories WHERE category = ?;", -1, &stmt, NULL);
     if (result_code != SQLITE_OK) {
-        fprintf(stderr, "Prepare failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Prepare failed: %s\n" RESET, sqlite3_errmsg(db));
         return -1;
     }
     sqlite3_bind_text(stmt, 1, q->category, -1, SQLITE_TRANSIENT);
     result_code = sqlite3_step(stmt);
     if (result_code != SQLITE_ROW) {
-        fprintf(stderr, "Category lookup failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Category lookup failed: %s\n" RESET, sqlite3_errmsg(db));
         sqlite3_finalize(stmt);
         return -1;
     }
@@ -185,7 +193,7 @@ static int add_question_steps(sqlite3 *db, const Question *q) {
 
     result_code = sqlite3_prepare_v2(db, "INSERT INTO questions (category_id, question, answer) VALUES (?, ?, ?);", -1, &stmt, NULL);
     if (result_code != SQLITE_OK) {
-        fprintf(stderr, "Prepare failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Prepare failed: %s\n" RESET, sqlite3_errmsg(db));
         return -1;
     }
     sqlite3_bind_int64(stmt, 1, category_id);
@@ -194,21 +202,21 @@ static int add_question_steps(sqlite3 *db, const Question *q) {
     result_code = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     if (result_code != SQLITE_DONE) {
-        fprintf(stderr, "Insert question failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Insert question failed: %s\n" RESET, sqlite3_errmsg(db));
         return -1;
     }
 
     question_id = sqlite3_last_insert_rowid(db);
     result_code = sqlite3_prepare_v2(db, "INSERT INTO stats (question_id, attempts, correct_attempts) VALUES (?, 0, 0);", -1, &stmt, NULL);
     if (result_code != SQLITE_OK) {
-        fprintf(stderr, "Prepare failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Prepare failed: %s\n" RESET, sqlite3_errmsg(db));
         return -1;
     }
     sqlite3_bind_int64(stmt, 1, question_id);
     result_code = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     if (result_code != SQLITE_DONE) {
-        fprintf(stderr, "Insert stats failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Insert stats failed: %s\n" RESET, sqlite3_errmsg(db));
         return -1;
     }
 
@@ -242,7 +250,7 @@ static int print_categories(sqlite3 *db) {
                 "ORDER BY c.category COLLATE NOCASE, c.id;",
                 -1, &stmt, NULL);
     if (result_code != SQLITE_OK) {
-        fprintf(stderr, "Prepare failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Prepare failed: %s\n" RESET, sqlite3_errmsg(db));
         return -1;
     }
 
@@ -255,7 +263,7 @@ static int print_categories(sqlite3 *db) {
     }
 
     if (result_code != SQLITE_DONE) {
-        fprintf(stderr, "Reading categories failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Reading categories failed: %s\n" RESET, sqlite3_errmsg(db));
     }
 
     sqlite3_finalize(stmt);
@@ -278,14 +286,18 @@ static int show_questions(sqlite3 *db, sqlite3_int64 category_id) {
     sqlite3_stmt *stmt = NULL;
     int result_code = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
     if (result_code != SQLITE_OK) {
-        fprintf(stderr, "Prepare failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Prepare failed: %s\n" RESET, sqlite3_errmsg(db));
         return -1;
     }
     sqlite3_bind_int64(stmt, 1, category_id);
 
     int count = 0;
+    printf("\n");
     while ((result_code = sqlite3_step(stmt)) == SQLITE_ROW) {
-        printf("[%d] (%s) %s -> %s [attempts: %d, correct: %d]\n",
+
+        const char *line_color = (count % 2 == 0) ? CYAN_BG : "";
+        printf("%s[%d] (%s) %s -> %s [attempts: %d, correct: %d]\n" RESET,
+            line_color,
             count + 1,
             (const char *)sqlite3_column_text(stmt, 0),
             (const char *)sqlite3_column_text(stmt, 1),
@@ -296,7 +308,7 @@ static int show_questions(sqlite3 *db, sqlite3_int64 category_id) {
     }
 
     if (result_code != SQLITE_DONE) {
-        fprintf(stderr, "Reading questions failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Reading questions failed: %s\n" RESET, sqlite3_errmsg(db));
     }
 
     sqlite3_finalize(stmt);
@@ -392,7 +404,7 @@ int choose_category(sqlite3 *db, const char *title, sqlite3_int64 *category_id) 
         return -1;
     }
 
-    if (ask_number("\nYour choice: ", &choice) != 0 || choice < 0) {
+    if (ask_number(BOLD "\nYour choice: " RESET, &choice) != 0 || choice < 0) {
         printf("Please enter a valid number.\n");
         return -1;
     }
@@ -417,7 +429,7 @@ int choose_category(sqlite3 *db, const char *title, sqlite3_int64 *category_id) 
 void show_questions_menu(sqlite3 *db) {
 
     sqlite3_int64 category_id;
-    if (choose_category(db, "Show questions from:", &category_id) != 0) {
+    if (choose_category(db, ERASE_AND_HOME "Show questions from:", &category_id) != 0) {
         return;
     }
 
@@ -430,7 +442,7 @@ static int run_delete(sqlite3 *db, const char *sql, sqlite3_int64 p1, sqlite3_in
     sqlite3_stmt *stmt = NULL;
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-        fprintf(stderr, "Prepare failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Prepare failed: %s\n" RESET, sqlite3_errmsg(db));
         return -1;
     }
 
@@ -442,7 +454,7 @@ static int run_delete(sqlite3 *db, const char *sql, sqlite3_int64 p1, sqlite3_in
     int result_code = sqlite3_step(stmt);
     int changes = sqlite3_changes(db);
     if (result_code != SQLITE_DONE) {
-        fprintf(stderr, "Delete failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Delete failed: %s\n" RESET, sqlite3_errmsg(db));
     }
     sqlite3_finalize(stmt);
 
@@ -519,12 +531,14 @@ void remove_questions_menu(sqlite3 *db) {
     long category_pos;
     long choice;
 
+    printf(ERASE_AND_HOME);
+
     printf("\nRemove from category:\n");
     if (print_categories(db) != 0) {
         return;
     }
 
-    if (ask_number("Category: ", &category_pos) != 0 || category_pos <= 0) {
+    if (ask_number(BOLD "\nCategory" RESET ": ", &category_pos) != 0 || category_pos <= 0) {
         printf("Cancelled.\n");
         return;
     }
@@ -541,7 +555,7 @@ void remove_questions_menu(sqlite3 *db) {
     printf("\n");
     show_questions(db, category_id);
 
-    if (ask_number("Question number to remove (0 = remove the WHOLE category): ",
+    if (ask_number(BOLD "\nQuestion number to remove (0 = remove the WHOLE category)" RESET ": ",
         &choice) != 0 || choice < 0) {
             printf("Cancelled.\n");
             return;
@@ -549,7 +563,7 @@ void remove_questions_menu(sqlite3 *db) {
 
     if (choice == 0) {
         char answer[16];
-        printf("This deletes the category, ALL its questions and their stats.\n");
+        printf(RED_BG "This deletes the category, ALL its questions and their stats.\n" RESET);
         printf("Type 'yes' to confirm: ");
         read_input(answer, sizeof answer);
 
@@ -559,9 +573,9 @@ void remove_questions_menu(sqlite3 *db) {
         }
 
         int changed = remove_category(db, category_id);
-        if (changed < 0)        printf("Removing failed.\n");
+        if (changed < 0)        printf(RED "Removing failed.\n" RESET);
         else if (changed == 0)  printf("No such category.\n");
-        else                    printf("Category removed.\n");
+        else                    printf(GREEN "Category removed.\n" RESET);
     } else {
         sqlite3_int64 question_id = lookup_id(db,
             "SELECT id FROM questions WHERE category_id = ?1 "
@@ -573,9 +587,9 @@ void remove_questions_menu(sqlite3 *db) {
         }
 
         int changed = remove_question(db, question_id, category_id);
-        if (changed < 0)        printf("Removing failed.\n");
+        if (changed < 0)        printf(RED "Removing failed.\n" RESET);
         else if (changed == 0)  printf("Nothing was removed.\n");
-        else                    printf("Question removed.\n");
+        else                    printf(GREEN "Question removed.\n" RESET);
     }
 }
 
@@ -584,7 +598,7 @@ void reset_stats_menu(sqlite3 *db) {
 
     char answer[16];
 
-    printf("\nThis resets all stats for all questions. Type 'yes' to confirm.\n");
+    printf(RED "\nThis resets all stats for all questions. Type 'yes' to confirm.\n" RESET "> ");
     read_input(answer, sizeof answer);
 
     if (strcmp(answer, "yes") != 0) {
@@ -596,12 +610,12 @@ void reset_stats_menu(sqlite3 *db) {
     if (sqlite3_exec(db,
         "UPDATE stats SET attempts = 0, correct_attempts = 0;",
         NULL, NULL, &err) != SQLITE_OK) {
-            fprintf(stderr, "Resetting stats failed: %s\n", err);
+            fprintf(stderr, RED "Resetting stats failed: %s\n" RESET, err);
             sqlite3_free(err);
             return;
         }
 
-    printf("Stats reset for %d question(s).\n", sqlite3_changes(db));
+    printf(GREEN "Stats reset for %d question(s).\n" RESET, sqlite3_changes(db));
 }
 
 
@@ -617,14 +631,14 @@ static void update_stat(sqlite3 *db, const char *sql, sqlite3_int64 question_id)
     sqlite3_stmt *stmt = NULL;
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-        fprintf(stderr, "Prepare failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Prepare failed: %s\n" RESET, sqlite3_errmsg(db));
         return;
     }
 
     sqlite3_bind_int64(stmt, 1, question_id);
 
     if (sqlite3_step(stmt) != SQLITE_DONE) {
-        fprintf(stderr, "Updating stats failed: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, RED "Updating stats failed: %s\n" RESET, sqlite3_errmsg(db));
     }
 
     sqlite3_finalize(stmt);
@@ -637,7 +651,7 @@ static AnswerResult ask_one_question(sqlite3 *db, const Config *cfg, int number,
 
     char input[MAX_INPUT_SIZE];
 
-    printf("\nQuestion %d: %s\n", number, question);
+    printf(CYAN "\n\n\nQuestion %d:" RESET " %s\n", number, question);
 
     update_stat(db,
         "UPDATE stats SET attempts = attempts + 1 WHERE question_id = ?1;",
@@ -650,19 +664,19 @@ static AnswerResult ask_one_question(sqlite3 *db, const Config *cfg, int number,
     }
 
     if (!cfg->strict_mode) {
-        printf("Answer: %s\n", answer);
+        printf(CYAN "Answer:" RESET " %s\n", answer);
         return ANSWER_NOT_CORRECT;
     }
 
     if (strcmp(input, answer) == 0) {
-        puts("Correct!");
+        puts(GREEN "Correct!" RESET);
         update_stat(db,
             "UPDATE stats SET correct_attempts = correct_attempts + 1 WHERE question_id = ?1;",
             question_id);
         return ANSWER_CORRECT;
     }
 
-    printf("Incorrect. Correct answer: %s\n", answer);
+    printf(RED "Incorrect." RESET "Correct answer: %s\n", answer);
     return ANSWER_NOT_CORRECT;
 }
 
@@ -670,9 +684,9 @@ static AnswerResult ask_one_question(sqlite3 *db, const Config *cfg, int number,
 static void print_quiz_summary(int asked, int correct, const Config *cfg, int quit_early) {
 
     if (quit_early) {
-        puts("\n=== Quiz stopped ===");
+        puts(ERASE_AND_HOME "\n=== Quiz stopped ===");
     } else {
-        puts("\n=== Congratulations, you finished the quiz! ===");
+        puts(ERASE_AND_HOME GREEN_BG BOLD "\n=== Congratulations, you finished the quiz! ===" RESET);
     }
 
     printf("Questons answered: %d\n", asked);
@@ -686,7 +700,7 @@ static void print_quiz_summary(int asked, int correct, const Config *cfg, int qu
 void run_quiz(sqlite3 *db, const Config *cfg) {
 
     sqlite3_int64 category_id;
-    if (choose_category(db, "Quiz from:", &category_id) != 0) {
+    if (choose_category(db, ERASE_AND_HOME "Quiz from:", &category_id) != 0) {
         return;
     }
 
@@ -707,7 +721,7 @@ void run_quiz(sqlite3 *db, const Config *cfg) {
         "ORDER BY %s "
         "LIMIT ?2;", order);
 
-    puts("\nType /q to quit the quiz.");
+    puts(ERASE_AND_HOME "\nType /q to quit the quiz.");
 
     int asked = 0;
     int correct = 0;
@@ -717,7 +731,7 @@ void run_quiz(sqlite3 *db, const Config *cfg) {
 
         sqlite3_stmt *stmt = NULL;
         if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-            fprintf(stderr, "Prepare failed: %s\n", sqlite3_errmsg(db));
+            fprintf(stderr, RED "Prepare failed: %s\n" RESET, sqlite3_errmsg(db));
             return;
         }
         sqlite3_bind_int64(stmt, 1, category_id);

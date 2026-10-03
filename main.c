@@ -20,7 +20,7 @@ int main(void) {
         return 1;
     }
 
-    char input[2048]; // input size for quiz answers and menu options
+    char input[MAX_INPUT_SIZE]; // input size for quiz answers and menu options
 
     puts(GREEN "=== Hello! Choose a command or type 'q' to exit. ===" RESET);
 
