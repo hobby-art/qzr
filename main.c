@@ -22,7 +22,7 @@ int main(void) {
 
     char input[MAX_INPUT_SIZE]; // input size for quiz answers and menu options
 
-    puts(GREEN "=== Hello! Choose a command or type 'q' to exit. ===" RESET);
+    puts(GREEN_BG "\n           === Hello! Choose a command or type 'q' to exit. ===" RESET);
 
     while (1) {
 
