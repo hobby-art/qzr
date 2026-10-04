@@ -91,7 +91,9 @@ void show_main_menu(void) {
          "2) Add new question\n"
          "3) Remove question\n"
          "4) Show available questions\n"
-         "5) Reset stats\n");
+         "5) Reset stats\n"
+         "6) Import questions from CSV\n"
+         "7) Export questions to CSV\n");
     printf("> ");
 }
 
@@ -126,20 +128,6 @@ static int ask_non_empty_text(const char *prompt, char *buf, size_t size) {
     if (read_input(buf, size) != 0 || buf[0] == '\0') {
         return -1;
     }
-
-    return 0;
-}
-
-
-int add_new_question(Question *q) {
-
-    memset(q, 0, sizeof *q);
-
-    printf(ERASE_AND_HOME);
-
-    if(ask_non_empty_text(BOLD "\nCategory" RESET ": ", q->category, sizeof q->category) != 0) return -1;
-    if(ask_non_empty_text(BOLD "\nQuestion" RESET ": ", q->question, sizeof q->question) != 0) return -1;
-    if(ask_non_empty_text(BOLD "\nAnswer" RESET ": ", q->answer, sizeof q->answer) != 0) return -1;
 
     return 0;
 }
@@ -421,6 +409,70 @@ int choose_category(sqlite3 *db, const char *title, sqlite3_int64 *category_id) 
         }
         *category_id = id;
     }
+
+    return 0;
+}
+
+
+static int get_category_name(sqlite3 *db, long position, char *buf, size_t size) {
+
+    sqlite3_stmt *stmt = NULL;
+    int found = -1;
+
+    if (sqlite3_prepare_v2(db,
+        "SELECT category FROM categories "
+        "ORDER BY category COLLATE NOCASE, id "
+        "LIMIT 1 OFFSET ?1;",
+        -1, &stmt, NULL) != SQLITE_OK) {
+            fprintf(stderr, RED "Prepare failed: %s\n" RESET, sqlite3_errmsg(db));
+            return -1;
+        }
+
+    sqlite3_bind_int64(stmt, 1, position - 1);
+
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        snprintf(buf, size, "%s", (const char *)sqlite3_column_text(stmt, 0));
+        found = 0;
+    }
+
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+
+int add_new_question(sqlite3 *db, Question *q) {
+
+    long choice;
+
+    memset(q, 0, sizeof *q);
+
+    printf(ERASE_AND_HOME);
+
+    printf(BOLD "\nChoose category:\n" RESET);
+    printf("  0) New category\n");
+    if (print_categories(db) != 0) {
+        return -1;
+    }
+
+    if (ask_number(BOLD "\nYour choice: " RESET, &choice) != 0 || choice < 0) {
+        return -1;
+    }
+
+    if (choice == 0) {
+        if (ask_non_empty_text(BOLD "\nNew category name: " RESET, q->category, sizeof q->category) != 0) {
+            return -1;
+        }
+    } else {
+        if (get_category_name(db, choice, q->category, sizeof q->category) != 0) {
+            puts("No such category.");
+            return -1;
+        }
+        printf(BOLD "\nCategory: %s\n" RESET, q->category);
+    }
+
+//    if(ask_non_empty_text(BOLD "\nCategory" RESET ": ", q->category, sizeof q->category) != 0) return -1;
+    if(ask_non_empty_text(BOLD "\nQuestion: " RESET, q->question, sizeof q->question) != 0) return -1;
+    if(ask_non_empty_text(BOLD "\nAnswer: " RESET, q->answer, sizeof q->answer) != 0) return -1;
 
     return 0;
 }
@@ -768,4 +820,301 @@ void run_quiz(sqlite3 *db, const Config *cfg) {
     } while (infinite && !quit);
 
     print_quiz_summary(asked, correct, cfg, quit);
+}
+
+// CSV export
+
+static void write_csv_field(FILE *f, const char *text) {
+
+    fputc('"', f);
+
+    for (const char *p = text; *p != '\0'; p++) {
+        if (*p == '"') {
+            fputc('"', f);
+        }
+        fputc(*p, f);
+    }
+
+    fputc('"', f);
+}
+
+
+static int export_questions(sqlite3 *db, const char *path) {
+
+    FILE *f = fopen(path, "w");
+    if (!f) {
+        fprintf(stderr, RED "Can't open %s for writing.\n" RESET, path);
+        return -1;
+    }
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db,
+        "SELECT c.category, q.question, q.answer "
+        "FROM questions q "
+        "JOIN categories c ON c.id = q.category_id "
+        "ORDER BY c.category COLLATE NOCASE, q.id;",
+        -1, &stmt, NULL) != SQLITE_OK) {
+            fprintf(stderr, RED "Prepare failed: %s\n", sqlite3_errmsg(db));
+            fclose(f);
+            return -1;
+        }
+
+    fputs("category, question, answer\n", f);
+
+    int count = 0;
+    int result_code;
+    while ((result_code = sqlite3_step(stmt)) == SQLITE_ROW) {
+        write_csv_field(f, (const char *)sqlite3_column_text(stmt, 0));
+        fputc(',', f);
+        write_csv_field(f, (const char *)sqlite3_column_text(stmt, 1));
+        fputc(',', f);
+        write_csv_field(f, (const char *)sqlite3_column_text(stmt, 2));
+        fputc('\n', f);
+        count++;
+    }
+    sqlite3_finalize(stmt);
+
+    if (result_code != SQLITE_DONE) {
+        fprintf(stderr, RED "Reading questions failed.\n" RESET);
+        fclose(f);
+        return -1;
+    }
+
+    if (fclose(f) != 0) {
+        fprintf(stderr, RED "Writing the file failed.\n" RESET);
+        return -1;
+    }
+
+    return count;
+}
+
+
+void export_csv_menu(sqlite3 *db) {
+
+    char path[MAX_INPUT_SIZE];
+    char answer[16];
+
+    printf(ERASE_AND_HOME);
+
+    if (ask_non_empty_text(BOLD "\nSave as (file name): " RESET, path, sizeof path) != 0) {
+        puts("Cancelled.");
+        return;
+    }
+
+    FILE *test = fopen(path, "r");
+    if (test) {
+        fclose(test);
+        printf(RED "%s already exists and will be overwritten.\n" RESET
+            "Type 'yes' to confirm: ", path);
+        read_input(answer, sizeof answer);
+        if (strcmp(answer, "yes") != 0) {
+            puts("Cancelled.");
+            return;
+        }
+    }
+
+    int count = export_questions(db, path);
+    if (count < 0) {
+        puts(RED "Export failed." RESET);
+    } else {
+        printf(GREEN "Exported %d question(s) to %s\n" RESET, count, path);
+    }
+}
+
+
+typedef enum {
+    CSV_RECORD,
+    CSV_END,
+    CSV_BAD
+} CsvResult;
+
+
+static CsvResult read_csv_record(FILE *f, Question *q) {
+
+    memset(q, 0, sizeof *q);
+
+    char *fields[3] = { q->category, q->question, q->answer };
+
+    int field = 0;
+    size_t len = 0;
+    int in_quotes = 0;
+    int seen_anything = 0;
+    int too_long = 0;
+    int c;
+
+    while ((c = fgetc(f)) != EOF) {
+
+        int to_add = -1;
+
+        if (in_quotes) {
+            if (c == '"') {
+                int next = fgetc(f);
+                if (next == '"') {
+                    to_add = '"';
+                } else {
+                    in_quotes = 0;
+                    ungetc(next, f);
+                }
+            } else {
+                to_add = c;
+            }
+        } else if (c == '"') {
+            if (len != 0) {
+                return CSV_BAD;
+            }
+            in_quotes = 1;
+            seen_anything = 1;
+        } else if (c == ',') {
+            field++;
+            if (field > 2) {
+                return CSV_BAD;
+            }
+            len = 0;
+            seen_anything = 1;
+        } else if (c == '\r') {
+            // Windows line ending is \r\n: ignore the \r
+        } else if (c == '\n') {
+            if (!seen_anything) {
+                continue;
+            }
+            break;
+        } else {
+            to_add = c;
+            seen_anything = 1;
+        }
+
+        if (to_add != -1) {
+            if (len < MAX_INPUT_SIZE - 1) {
+                fields[field][len++] = (char)to_add;
+            } else {
+                too_long = 1;
+            }
+        }
+
+    }
+
+    if (in_quotes) return CSV_BAD;
+    if (!seen_anything) return CSV_END;
+    if (field != 2 || too_long) return CSV_BAD;
+
+    return CSV_RECORD;
+}
+
+
+static int question_exists(sqlite3 *db, const Question *q) {
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db,
+        "SELECT 1 FROM questions q "
+        "JOIN categories c ON c.id = q.category_id "
+        "WHERE c.category = ?1 AND q.question = ?2 LIMIT 1;",
+        -1, &stmt, NULL) != SQLITE_OK) {
+            fprintf(stderr, RED "Prepare failed: %s\n" RESET, sqlite3_errmsg(db));
+            return -1;
+        }
+
+    sqlite3_bind_text(stmt, 1, q->category, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, q->question, -1, SQLITE_TRANSIENT);
+
+    int result_code = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (result_code == SQLITE_ROW) return 1;
+    if (result_code == SQLITE_DONE) return 0;
+
+    return -1;
+}
+
+
+static int import_questions(sqlite3 *db, const char *path, int *added, int *skipped) {
+
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        fprintf(stderr, RED "Can't open %s\n" RESET, path);
+        return -1;
+    }
+
+    if (!(fgetc(f) == 0xEF && fgetc(f) == 0xBB && fgetc(f) == 0xBF)) {
+        rewind(f);
+    }
+
+    if (sqlite3_exec(db, "BEGIN;", NULL, NULL, NULL) != SQLITE_OK) {
+        fprintf(stderr, RED "Can't start transaction: %s\n" RESET, sqlite3_errmsg(db));
+        fclose(f);
+        return -1;
+    }
+
+    Question q;
+    CsvResult status;
+    int record = 0;
+    int result = 0;
+
+    while ((status = read_csv_record(f, &q)) == CSV_RECORD) {
+
+        record++;
+
+        if (record == 1 &&
+            strcmp(q.category, "category") == 0 &&
+            strcmp(q.question, "question") == 0 &&
+            strcmp(q.answer, "answer") == 0) {
+                continue;
+            }
+
+        if (q.category[0] == '\0' || q.question[0] == '\0' || q.answer[0] == '\0') {
+            fprintf(stderr, RED "Record %d has an empty value.\n" RESET, record);
+            result = -1;
+            break;
+        }
+
+        int exists = question_exists(db, &q);
+        if (exists < 0) {
+            result = -1;
+            break;
+        }
+        if (exists == 1) {
+            (*skipped)++;
+            continue;
+        }
+
+        if (add_question_steps(db, &q) != 0) {
+            result = -1;
+            break;
+        }
+        (*added)++;
+
+    }
+
+    if (result == 0 && status == CSV_BAD) {
+        fprintf(stderr, RED "Record %d is malformed "
+            "(broken quotes, wrong number of columns or value too long).\n" RESET, record + 1);
+        result = -1;
+    }
+
+    sqlite3_exec(db, result == 0 ? "COMMIT;" : "ROLLBACK;", NULL, NULL, NULL);
+    fclose(f);
+
+    return result;
+}
+
+
+void import_csv_menu(sqlite3 *db) {
+
+    char path[MAX_INPUT_SIZE];
+
+    printf(ERASE_AND_HOME);
+
+    if (ask_non_empty_text(BOLD "\nCSV file to import: " RESET, path, sizeof path) != 0) {
+        puts("Cancelled.");
+        return;
+    }
+
+    int added = 0;
+    int skipped = 0;
+
+    if (import_questions(db, path, &added, &skipped) == 0) {
+        printf(GREEN "\nImport finished. " RESET "Added: %d, skipped dubplicates: %d\n",
+            added, skipped);
+    } else {
+        puts(RED "\nImport failed. Nothing was added" RESET);
+    }
 }

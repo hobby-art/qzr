@@ -30,7 +30,7 @@ void config_defaults(Config *cfg);
 int init_db(sqlite3 **db);
 // main menu
 void show_main_menu(void);
-int add_new_question(Question *q);
+int add_new_question(sqlite3 *db, Question *q);
 void show_added_question_info(Question *q);
 int add_question_to_db(sqlite3 *db, const Question *q);
 void show_questions_menu(sqlite3 *db);
@@ -38,6 +38,8 @@ void remove_questions_menu(sqlite3 *db);
 int choose_category(sqlite3 *db, const char *title, sqlite3_int64 *category_id);
 void run_quiz(sqlite3 *db, const Config *cfg);
 void reset_stats_menu(sqlite3 *db);
+void import_csv_menu(sqlite3 *db);
+void export_csv_menu(sqlite3 *db);
 // misc
 int read_input(char *buf, size_t size);
 

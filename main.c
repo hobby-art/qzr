@@ -55,7 +55,7 @@ int main(void) {
            case 2: {
 
                Question q;
-               if (add_new_question(&q) != 0) {
+               if (add_new_question(db, &q) != 0) {
                    puts("Cancelled: fields can't be empty or too long.");
                    continue;
                }
@@ -79,6 +79,16 @@ int main(void) {
            case 5:
 
                reset_stats_menu(db);
+               continue;
+
+           case 6:
+
+               import_csv_menu(db);
+               continue;
+
+           case 7:
+
+               export_csv_menu(db);
                continue;
 
            default:
